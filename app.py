@@ -3,6 +3,7 @@ import pickle
 from flask import Flask, render_template, request, redirect, url_for
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
@@ -17,10 +18,20 @@ DATABASE_URL = os.getenv('DATABASE_URL')  # Vercel injects this environment vari
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable not set. Check your Vercel configuration.")
 
+# Parse DATABASE_URL for psycopg2 connection
+url = urlparse(DATABASE_URL)
+db_params = {
+    'dbname': url.path[1:],
+    'user': url.username,
+    'password': url.password,
+    'host': url.hostname,
+    'port': url.port or 5432
+}
+
 # Function to insert data into the PostgreSQL database
 def insert_user_data(height, weight, gender, prediction):
     try:
-        with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        with psycopg2.connect(**db_params, sslmode="require") as conn:
             with conn.cursor() as cursor:
                 query = """
                 INSERT INTO users (height, weight, gender, predicted_shoe_size) 
@@ -36,7 +47,7 @@ def insert_user_data(height, weight, gender, prediction):
 # Function to update shoe size in the PostgreSQL database
 def update_shoe_size(user_id, shoe_size):
     try:
-        with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        with psycopg2.connect(**db_params, sslmode="require") as conn:
             with conn.cursor() as cursor:
                 query = """
                 UPDATE users SET shoe_size = %s WHERE id = %s
@@ -57,7 +68,9 @@ def index():
             gender = request.form['gender']
             
             # Gender mapping: female -> 1, male -> 0
-            gender = 1 if gender == 'female' else 0 if gender == 'male' else None
+            if gender not in ['male', 'female']:
+                return "Invalid gender. Please select 'male' or 'female'.", 400
+            gender = 1 if gender == 'female' else 0
 
             # Prepare data for prediction (model expects height, weight, gender)
             input_data = [[height, weight, gender]]
